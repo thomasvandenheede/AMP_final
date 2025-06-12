@@ -8,6 +8,8 @@ from torch.utils.data import Dataset
 from vod.configuration import KittiLocations
 from vod.frame import FrameDataLoader, FrameTransformMatrix, homogeneous_transformation
 
+from .augmentation import Augment
+
 class ViewOfDelft(Dataset):
     CLASSES = ['Car', 
                'Pedestrian', 
@@ -50,8 +52,8 @@ class ViewOfDelft(Dataset):
             self.sample_list = [line.strip() for line in lines]
         
         self.vod_kitti_locations = KittiLocations(root_dir = data_root)
+        self.augmentor = Augment() if split == 'train' else None
 
-        #Here
     def __len__(self):
         return len(self.sample_list)
 
@@ -101,6 +103,11 @@ class ViewOfDelft(Dataset):
             origin=(0.5, 0.5, 0))
         
         gt_labels_3d = torch.tensor(gt_labels_3d)
+
+        if self.augmentor is not None:
+            lidar_data, gt_bboxes_3d, gt_labels_3d = self.augmentor(
+                lidar_data, gt_bboxes_3d, gt_labels_3d
+            )
         
         return dict(
             lidar_data = lidar_data,

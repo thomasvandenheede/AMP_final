@@ -65,6 +65,24 @@ class ViewOfDelft(Dataset):
         
         lidar_data = vod_frame_data.lidar_data
 
+        angle_main = np.deg2rad(32)  # Main annotates data
+        angle_limit = np.deg2rad(90) # limits for driving corridor
+
+        radius_main = 50.0  # Main annotates data
+        radius_side = 6.402 # limits for driving corridor
+
+        x = lidar_data[:, 0]
+        y = lidar_data[:, 1]
+
+        distance = np.sqrt(x**2 + y**2)
+        angle = np.abs(np.arctan2(y, x))  # abs because of symmetry left/right
+
+        angle_clipped = np.clip(angle, angle_main, angle_limit)
+        max_allowed_radius = np.where(angle <= angle_main, radius_main, radius_side)
+
+        mask = (angle <= angle_limit) & (distance <= max_allowed_radius)
+        lidar_data = lidar_data[mask]
+
         
         gt_labels_3d_list = []
         gt_bboxes_3d_list = []

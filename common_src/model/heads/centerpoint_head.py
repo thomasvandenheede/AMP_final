@@ -172,6 +172,7 @@ class CenterHead(nn.Module):
             padding=1,
             with_norm=True,
             bias=bias)
+        
 
         self.task_heads = nn.ModuleList()
         for num_cls in num_classes:

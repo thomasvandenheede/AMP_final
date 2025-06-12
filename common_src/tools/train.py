@@ -15,8 +15,9 @@ from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 
 import torch
 from torch.utils.data import DataLoader
-from common_src.model.detector import CenterPoint
-from common_src.dataset import ViewOfDelft, collate_vod_batch
+from common_src.model.detector import CenterPointAttn
+from common_src.dataset import ViewOfDelft, collate_vod_batch 
+
 
 @hydra.main(version_base=None, config_path='../config', config_name='train')    
 def train(cfg: DictConfig)-> None:
@@ -35,7 +36,7 @@ def train(cfg: DictConfig)-> None:
                                 num_workers=cfg.num_workers, 
                                 shuffle=False,
                                 collate_fn=collate_vod_batch)
-    model = CenterPoint(cfg.model)
+    model = CenterPointAttn(cfg.model)
     callbacks = [
         ModelCheckpoint(
             dirpath=osp.join(cfg.output_dir, "checkpoints"),

@@ -1,5 +1,5 @@
 defaults: 
-  - model: centerpoint
+  - model: centerpoint_attn
   - _self_
 
 seed: 47020

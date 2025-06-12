@@ -50,8 +50,6 @@ class ViewOfDelft(Dataset):
             self.sample_list = [line.strip() for line in lines]
         
         self.vod_kitti_locations = KittiLocations(root_dir = data_root)
-
-        #Here
     def __len__(self):
         return len(self.sample_list)
 

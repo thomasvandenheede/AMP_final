@@ -9,6 +9,7 @@ from vod.configuration import KittiLocations
 from vod.frame import FrameDataLoader, FrameTransformMatrix, homogeneous_transformation
 
 from .augmentation import Augment
+from torchvision import transforms
 
 class ViewOfDelft(Dataset):
     CLASSES = ['Car', 
@@ -65,6 +66,26 @@ class ViewOfDelft(Dataset):
         
         lidar_data = vod_frame_data.lidar_data
 
+        angle_main = np.deg2rad(32)  # Main annotates data
+        angle_limit = np.deg2rad(90) # limits for driving corridor
+
+        radius_main = 50.0  # Main annotates data
+        radius_side = 6.402 # limits for driving corridor
+
+        x = lidar_data[:, 0]
+        y = lidar_data[:, 1]
+
+        distance = np.sqrt(x**2 + y**2)
+        angle = np.abs(np.arctan2(y, x))  # abs because of symmetry left/right
+
+        angle_clipped = np.clip(angle, angle_main, angle_limit)
+        max_allowed_radius = np.where(angle <= angle_main, radius_main, radius_side)
+
+        mask = (angle <= angle_limit) & (distance <= max_allowed_radius)
+        lidar_data = lidar_data[mask]
+
+        K = local_transforms.camera_projection_matrix[:3, :3].copy()
+        T_lidar_camera = np.linalg.inv(local_transforms.t_camera_lidar)
         
         gt_labels_3d_list = []
         gt_bboxes_3d_list = []
@@ -104,19 +125,26 @@ class ViewOfDelft(Dataset):
         
         gt_labels_3d = torch.tensor(gt_labels_3d)
 
+        img = vod_frame_data.image
+
         if self.augmentor is not None:
-            lidar_data, gt_bboxes_3d, gt_labels_3d = self.augmentor(
-                lidar_data, gt_bboxes_3d, gt_labels_3d
+            lidar_data, gt_bboxes_3d, gt_labels_3d, img, _ = self.augmentor(
+                lidar_data.numpy(),
+                gt_bboxes_3d,
+                gt_labels_3d,
+                image=img
             )
-        
+            lidar_data = torch.tensor(lidar_data, dtype=torch.float32)
+
         return dict(
-            lidar_data = lidar_data,
-            gt_labels_3d = gt_labels_3d,
-            gt_bboxes_3d = gt_bboxes_3d,
-            meta = dict(
-                num_frame = num_frame 
+            lidar_data=lidar_data,
+            gt_labels_3d=gt_labels_3d,
+            gt_bboxes_3d=gt_bboxes_3d,
+            img=img,
+            K=K.astype(np.float32),
+            T_lidar_camera=T_lidar_camera.astype(np.float32),
+            meta=dict(
+                num_frame=num_frame
             )
         )
-    
-
         

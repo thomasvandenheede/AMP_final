@@ -20,8 +20,96 @@ from common_src.ops import Voxelization
 from common_src.model.voxel_encoders import PillarFeatureNet
 from common_src.model.middle_encoders import PointPillarsScatter
 from common_src.model.backbones import SECOND
+from common_src.model.backbones.image_backbone import ImageBackbone
 from common_src.model.necks import SECONDFPN
 from common_src.model.heads import CenterHead
+
+#import torch.nn as nn
+
+
+def lift_splat(img_feats, depth_prob, K, T_lidar_camera, depth_bin_centers, bev_x_range=(0, 51.2), bev_y_range=(-25.6, 25.6), bev_resolution=0.16):
+
+    B, C, H, W = img_feats.shape
+    D = depth_prob.shape[1]
+    X = int((bev_x_range[1] - bev_x_range[0]) / bev_resolution)
+    Y = int((bev_y_range[1] - bev_y_range[0]) / bev_resolution)
+    device = img_feats.device
+
+    # Create meshgrid for pixel and depth positions [H, W, D]
+    u = torch.arange(H, device=device, dtype=torch.float32)
+    v = torch.arange(W, device=device, dtype=torch.float32)
+    d = depth_bin_centers.to(device).to(dtype=torch.float32)
+
+    grid_u, grid_v, grid_d = torch.meshgrid(u, v, d, indexing="ij")  # [H, W, D]
+    N = H * W * D
+
+    # Flatten
+    grid_u = grid_u.flatten()   # [N]
+    grid_v = grid_v.flatten()
+    grid_d = grid_d.flatten()
+
+    # Batched camera parameters
+    fx = K[:, 0, 0][:, None]
+    fy = K[:, 1, 1][:, None]
+    cx = K[:, 0, 2][:, None]
+    cy = K[:, 1, 2][:, None]
+
+    # Broadcast and compute (for each batch)
+    grid_v = grid_v[None, :]   # [1, N]
+    grid_u = grid_u[None, :]
+    grid_d = grid_d[None, :]
+    x_cam = (grid_v - cx) * grid_d / fx    # [B, N]
+    y_cam = (grid_u - cy) * grid_d / fy    # [B, N]
+    z_cam = grid_d.repeat(B, 1)            # [B, N]
+
+    ones = torch.ones_like(z_cam)
+    pts_cam = torch.stack([x_cam, y_cam, z_cam, ones], dim=1)  # [B, 4, N]
+
+    # Batched transform to LiDAR frame
+    pts_lid = torch.bmm(T_lidar_camera, pts_cam)  # [B, 4, N]
+
+    # Convert to BEV grid
+    x_bev = ((pts_lid[:, 0] - bev_x_range[0]) / bev_resolution).long()  # [B, N]
+    y_bev = ((pts_lid[:, 1] - bev_y_range[0]) / bev_resolution).long()
+    valid = (x_bev >= 0) & (x_bev < X) & (y_bev >= 0) & (y_bev < Y)
+
+    # Features: [B, C, H, W] → [B, C, N]
+    img_feats_flat = img_feats.view(B, C, H*W)
+    img_feats_flat = img_feats_flat.unsqueeze(2).expand(B, C, D, H*W).contiguous()
+    img_feats_flat = img_feats_flat.view(B, C, N)  # [B, C, N]
+
+    # Depth probs: [B, D, H, W] → [B, N]
+    depth_prob_flat = depth_prob.permute(0,2,3,1).reshape(B, H*W*D)  # [B, N]
+
+    # Prepare output
+    bev_feats = torch.zeros(B, C, X*Y, device=device)
+
+    for b in range(B):
+        idx = (x_bev[b, valid[b]] * Y + y_bev[b, valid[b]])
+        feats = img_feats_flat[b,:,valid[b]] * depth_prob_flat[b, valid[b]].unsqueeze(0)  # [C, valid_N]
+        bev_feats_b = bev_feats[b]
+        bev_feats_b.index_add_(1, idx, feats)
+        bev_feats[b] = bev_feats_b
+
+    bev_feats = bev_feats.view(B, C, X, Y)
+    return bev_feats
+
+
+#class ChannelAttention(nn.Module):
+#    def __init__(self, channels, reduction=16):
+#        super().__init__()
+#        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+#        self.fc = nn.Sequential(
+#            nn.Conv2d(channels, channels // reduction, kernel_size=1),
+#            nn.ReLU(inplace=True),
+#            nn.Conv2d(channels // reduction, channels, kernel_size=1),
+#            nn.Sigmoid()
+#        )
+#    def forward(self, x):
+#        attn = self.avg_pool(x)
+#        attn = self.fc(attn)
+#        return x * attn
+
 
 class CenterPoint(L.LightningModule):
     def __init__(self, config):
@@ -45,6 +133,9 @@ class CenterPoint(L.LightningModule):
         self.voxel_encoder = PillarFeatureNet(**voxel_encoder_config)
         self.middle_encoder = PointPillarsScatter(**middle_encoder_config)
         self.backbone = SECOND(**backbone_config)
+        self.image_backbone = ImageBackbone(out_channels=128)
+        self.fusion = torch.nn.Conv2d(256 + 128, 256, kernel_size=1)
+        #self.channel_attention = ChannelAttention(256)
         self.neck = SECONDFPN(**neck_config)
         self.head = CenterHead(**head_config)
         
@@ -79,7 +170,7 @@ class CenterPoint(L.LightningModule):
 
         return voxel_dict
     
-    def _model_forward(self, pts_data):
+    '''def _model_forward(self, pts_data):
 
         voxel_dict = self.voxelize(pts_data)
     
@@ -93,14 +184,77 @@ class CenterPoint(L.LightningModule):
         backbone_feats = self.backbone(bev_feats)
         neck_feats = self.neck(backbone_feats)
         ret_dict = self.head(neck_feats)
+        return ret_dict'''
+    
+    def _model_forward(self, pts_data, img_data, K, T_lidar_camera):
+        voxel_dict = self.voxelize(pts_data)
+    
+        voxels = voxel_dict['voxels']
+        num_points = voxel_dict['num_points']
+        coors = voxel_dict['coors']
+    
+        voxel_features = self.voxel_encoder(voxels, num_points, coors)
+        bs = coors[-1,0].item() + 1
+        bev_feats = self.middle_encoder(voxel_features, coors, bs)        
+        lidar_feats_all = self.backbone(bev_feats)
+        lidar_feats = lidar_feats_all[-1]
+
+        if img_data is not None and K is not None and T_lidar_camera is not None:
+            if isinstance(img_data, list):
+                img_data = torch.stack(img_data).to(lidar_feats.device)
+            else:
+                img_data = img_data.to(lidar_feats.device)
+            image_feats, depth_prob = self.image_backbone(img_data)   # [B, C_img, H, W], [B, D, H, W]
+
+            if isinstance(K, list):
+                K = [torch.from_numpy(k) if isinstance(k, np.ndarray) else k for k in K]
+                K = torch.stack(K).to(lidar_feats.device)
+            else:
+                K = K.to(lidar_feats.device)
+
+            if isinstance(T_lidar_camera, list):
+                T_lidar_camera = [torch.from_numpy(t) if isinstance(t, np.ndarray) else t for t in T_lidar_camera]
+                T_lidar_camera = torch.stack(T_lidar_camera).to(lidar_feats.device)
+            else:
+                T_lidar_camera = T_lidar_camera.to(lidar_feats.device)
+
+            bev_x_range = (0, 51.2)
+            bev_y_range = (-25.6, 25.6)
+            bev_resolution = 0.16
+            depth_bin_centers = torch.linspace(0.1, 80.0, steps=80, device=lidar_feats.device)
+
+            img_bev_feats = lift_splat(
+                image_feats, depth_prob, K, T_lidar_camera,
+                depth_bin_centers, bev_x_range, bev_y_range, bev_resolution
+            )
+
+            if lidar_feats.shape[-2:] != img_bev_feats.shape[-2:]:
+                img_bev_feats = F.interpolate(img_bev_feats, size=lidar_feats.shape[-2:], mode='bilinear', align_corners=False)
+
+            fused_feats = torch.cat([lidar_feats, img_bev_feats], dim=1)  # [B, C_lidar + C_img, H, W]
+            backbone_feats = self.fusion(fused_feats)
+            #backbone_feats = self.channel_attention(backbone_feats)  
+            neck_input = list(lidar_feats_all)
+            neck_input[-1] = backbone_feats 
+            neck_feats = self.neck(tuple(neck_input))
+        else:
+            backbone_feats = lidar_feats
+            neck_feats = self.neck(backbone_feats)
+       
+        ret_dict = self.head(neck_feats)
         return ret_dict
+    
     
     def training_step(self, batch, batch_idx):
         pts_data = batch['pts']
+        img_data = batch['img']
+        K = batch['K']
+        T_lidar_camera = batch['T_lidar_camera']
         gt_label_3d = batch['gt_labels_3d']
         gt_bboxes_3d = batch['gt_bboxes_3d']
         
-        ret_dict = self._model_forward(pts_data)
+        ret_dict = self._model_forward(pts_data, img_data=img_data, K=K, T_lidar_camera=T_lidar_camera)
+        
         loss_input = [gt_bboxes_3d, gt_label_3d, ret_dict]
         
         losses = self.head.loss(*loss_input)
@@ -129,11 +283,14 @@ class CenterPoint(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         assert len(batch['pts']) == 1, 'Batch size should be 1 for validation'
         pts_data = batch['pts']
+        img_data = batch['img']
+        K = batch['K']
+        T_lidar_camera = batch['T_lidar_camera']
         metas = batch['metas']
         gt_label_3d = batch['gt_labels_3d']
         gt_bboxes_3d = batch['gt_bboxes_3d']
         
-        ret_dict = self._model_forward(pts_data)
+        ret_dict = self._model_forward(pts_data, img_data=img_data, K=K, T_lidar_camera=T_lidar_camera)
         loss_input = [gt_bboxes_3d, gt_label_3d, ret_dict]
         
         bbox_list = self.head.get_bboxes(ret_dict, img_metas=metas)
@@ -390,8 +547,4 @@ class CenterPoint(L.LightningModule):
                 scores=np.zeros([0]),
                 label_preds=np.zeros([0, 4]),
                 sample_idx=sample_idx)
-        
-        
-        
-        
-        
+

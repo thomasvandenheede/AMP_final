@@ -1,0 +1,5 @@
+# config/kitti_locations/default.yaml
+_target_: vod.configuration.KittiLocations
+# root_dir, output_dir will be injected by train.py from the main config (cfg.data_root, cfg.output_dir)
+frame_set_path: "" 
+pred_dir: ""

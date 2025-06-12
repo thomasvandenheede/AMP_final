@@ -8,6 +8,8 @@ from torch.utils.data import Dataset
 from vod.configuration import KittiLocations
 from vod.frame import FrameDataLoader, FrameTransformMatrix, homogeneous_transformation
 
+from torchvision import transforms
+
 class ViewOfDelft(Dataset):
     CLASSES = ['Car', 
                'Pedestrian', 
@@ -50,12 +52,11 @@ class ViewOfDelft(Dataset):
             self.sample_list = [line.strip() for line in lines]
         
         self.vod_kitti_locations = KittiLocations(root_dir = data_root)
-
-        #Here
     def __len__(self):
         return len(self.sample_list)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx):  
+
         num_frame = self.sample_list[idx]
         vod_frame_data = FrameDataLoader(kitti_locations=self.vod_kitti_locations,
                                          frame_number=num_frame)
@@ -63,6 +64,8 @@ class ViewOfDelft(Dataset):
         
         lidar_data = vod_frame_data.lidar_data
 
+        K = local_transforms.camera_projection_matrix[:3, :3].copy()
+        T_lidar_camera = np.linalg.inv(local_transforms.t_camera_lidar)
         
         gt_labels_3d_list = []
         gt_bboxes_3d_list = []
@@ -101,15 +104,28 @@ class ViewOfDelft(Dataset):
             origin=(0.5, 0.5, 0))
         
         gt_labels_3d = torch.tensor(gt_labels_3d)
+
+        img_transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize((224, 224)),    # or (256, 256) if you prefer
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+
+        img = vod_frame_data.image   # This is HxWx3 (numpy)
+        if img.max() > 1.0:
+            img = img.astype('uint8')
+        img = img_transform(img)
         
         return dict(
             lidar_data = lidar_data,
             gt_labels_3d = gt_labels_3d,
             gt_bboxes_3d = gt_bboxes_3d,
+            img=img,
+            K = K.astype(np.float32),                
+            T_lidar_camera = T_lidar_camera.astype(np.float32),
             meta = dict(
                 num_frame = num_frame 
             )
         )
-    
-
         

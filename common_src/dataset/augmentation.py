@@ -4,15 +4,6 @@ import numpy as np
 class Augment:
     def __init__(self, rot_range=(-0.1, 0.1), scale_range=(0.95, 1.05),
                  flip_prob=0.5, trans_std=0.2):
-        """
-        Basic LiDAR data augmentation (no CutMix).
-
-        Parameters:
-        - rot_range: range of random rotation angles (radians)
-        - scale_range: range for random scaling factors
-        - flip_prob: probability of applying a Y-axis flip
-        - trans_std: standard deviation for random translation (X and Y)
-        """
         self.rot_range = rot_range
         self.scale_range = scale_range
         self.flip_prob = flip_prob
@@ -32,7 +23,7 @@ class Augment:
         points[:, :3] *= scale
         boxes.tensor[:, :6] *= scale
 
-        # Random flip along Y-axis
+        # Random flip
         if random.random() < self.flip_prob:
             points[:, 1] *= -1
             boxes.tensor[:, 1] *= -1

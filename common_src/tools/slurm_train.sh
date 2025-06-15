@@ -3,7 +3,6 @@
 #SBATCH --partition=gpu-a100-small
 #SBATCH --time=4:00:00
 
-#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem-per-cpu=4G
@@ -22,6 +21,6 @@ conda activate amp
 previous=$(nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/tail -n '+2')
 nvidia-smi
 
-srun python -u common_src/tools/train.py exp_id=centerpoint_baseline_db_try_slurm batch_size=4 num_workers=2 epochs=12
+srun python -u common_src/tools/train.py --config-name train_default.yaml exp_id=pointpainting_run_testing_14_06 batch_size=4 num_workers=2 epochs=10
 
 nvidia-smi --query-accounted-apps='gpu_utilization,mem_utilization,max_memory_usage,time' --format='csv' | /usr/bin/grep -v -F "$previous"

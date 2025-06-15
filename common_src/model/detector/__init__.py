@@ -1,1 +1,1 @@
-from .centerpoint import CenterPoint
+from .centerpoint_bev import CenterPoint

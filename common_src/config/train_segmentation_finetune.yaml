@@ -1,0 +1,45 @@
+# config/train_segmentation_finetune.yaml
+defaults:
+  - _self_
+  - model: segmentation_deeplab_model # Use the DeepLab model config
+  - kitti_locations: default
+  #- wandb_logger_seg: default # Use default wandb logger for segmentation
+
+# --- Top-Level Experiment Configuration ---
+data_root: "/home/mramidi/final_assignment/view_of_delft" # IMPORTANT: Set this to your actual dataset root
+output_dir: "/home/mramidi/final_assignment/outputs/segmentation_output_dir" # Base output for segmentation runs
+exp_id: "seg_deeplab_finetune_01"
+
+# --- Training Settings Specific to Segmentation ---
+mode: "segmentation_finetune"
+seed: 42
+batch_size: 8 # Can be larger for segmentation
+num_workers: 4
+epochs: 25 # Fewer epochs for fine-tuning
+gpus: [0] 
+log_every: 20
+val_every: 1
+save_top_model: 1
+sync_bn: False
+checkpoint_path: null 
+checkpoint_monitor_seg: 'val/mIoU' # Monitor mIoU for segmentation
+checkpoint_mode_seg: 'max'
+
+# --- Dataset Specific Parameters for Segmentation ---
+dataset_seg:
+  all_frames_split_file: "train_val.txt" # Name of the file in ImageSets like train.txt, val.txt or trainval.txt
+  train_val_split_ratio: 0.8
+  image_normalize_mean: [0.485, 0.456, 0.406] # Standard ImageNet stats
+  image_normalize_std: [0.229, 0.224, 0.225]
+
+# --- Optimizer for Segmentation Fine-tuning ---
+optimizer_seg:
+  #_target_: torch.optim.AdamW
+  lr: 1e-4 # Smaller LR for fine-tuning
+  weight_decay: 1e-5
+
+# Default Wandb config for segmentation
+# wandb_logger_seg:
+#   project: "amp_segmentation"
+#   name: ${exp_id}
+#   log_model: True

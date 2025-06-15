@@ -1,0 +1,26 @@
+# config/model/segmentation_deeplab_model.yaml
+_target_: common_src.model.segmentation_model_lightning.SegmentationLightningModel
+
+# Parameters for SegmentationLightningModel.__init__
+num_classes: 4 # Example: Background, Car, Pedestrian, Cyclist
+class_mapping: # For ViewOfDelft dataset to map string labels to target IDs
+  Background: 0
+  Car: 1
+  Pedestrian: 2
+  Cyclist: 3
+
+freeze_backbone_during_finetune: True # Set to False to fine-tune more layers
+use_coco_weights_for_backbone: True # Use COCO pre-trained weights for ResNet50 backbone
+
+# Expected input image size for DeepLabV3, used by ViewOfDelft for resizing
+input_height: 520 # Height of input images
+input_width: 520  # Width of input images
+
+
+loss_fn_name: "CrossEntropyLoss"
+# class_weights: [0.5, 1.5, 1.5, 2.0] # Optional: if you have class imbalance
+
+# optimizer_cfg is passed directly from train_*.yaml by train.py when instantiating
+optimizer_cfg:
+  lr: 0.001
+  weight_decay: 0.01

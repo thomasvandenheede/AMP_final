@@ -1,5 +1,5 @@
 defaults: 
-  - model: centerpoint
+  - model: centerpoint_model
   - _self_
 exp_id: centerpoint_default
 

@@ -33,7 +33,7 @@ def eval(cfg: DictConfig) -> None:
     checkpoint = torch.load(cfg.checkpoint_path, weights_only=False)
     checkpoint_params = DictConfig(checkpoint["hyper_parameters"])
     print('checkpoint params:', checkpoint_params.keys())
-    print('checkpoint params cfg:', checkpoint_params.config.keys())
+    #print('checkpoint params cfg:', checkpoint_params.config.keys())
     
     model = CenterPoint.load_from_checkpoint(checkpoint_path=cfg.checkpoint_path)
     model.eval()

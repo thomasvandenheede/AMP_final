@@ -1,0 +1,134 @@
+# config/model/centerpoint_model.yaml (or your main detection model config)
+# _target_: common_src.model.detector.CenterPoint # if you instantiate CenterPoint directly
+
+# ... (all your existing CenterPoint parameters like pc_range, voxel_size etc.) ...
+name: centerpoint # This is used by CenterPoint's save_hyperparameters if passed as a DictConfig
+# ...
+exp_id: ${exp_id}
+
+data_root: ${data_root}
+class_names: ['Car', 'Pedestrian', 'Cyclist']
+point_cloud_range: [0, -25.6, -3, 51.2, 25.6, 2]
+voxel_size: [0.16, 0.16, 5]
+output_dir: ${output_dir}
+
+# ---> NEW: Configuration to enable the image backbone <---
+image_backbone:
+  _target_: torchvision.models.resnet18 # For reference, not directly instantiated by Hydra here
+  num_features: 256 # Output channels from layer3 of ResNet-18
+  # The dataset needs to know what size image to prepare
+  input_height: 256 # Smaller image size is fine for this
+  input_width: 448  # Keep aspect ratio reasonable
+
+# ---> ADD FOR POINTPAINTING <---
+image_segmentation_model:
+#   _target_: common_src.model.segmentation_helpers.get_modified_deeplabv3 # Path to your helper
+#   num_target_classes: 4 # Must match the output of your fine-tuned segmentation model
+#   freeze_backbone: True # Not relevant for inference, weights are loaded
+#   use_coco_weights: False # Set to False if loading fully fine-tuned custom head
+  
+#   # Path to your fine-tuned segmentation model weights
+#   finetuned_weights_path: "/home/mramidi/final_assignment/outputs/segmentation_output_dir/my_final_segmentation_try/checkpoints/last.ckpt" # IMPORTANT
+  
+#   # Image preprocessing params (must match what segmentation model was fine-tuned with)
+  input_height: 520
+  input_width: 520
+  image_normalize_mean: [0.485, 0.456, 0.406]
+  image_normalize_std: [0.229, 0.224, 0.225]
+
+
+# Existing model sections
+pts_voxel_layer:
+  max_num_points: 10
+  voxel_size: ${model.voxel_size} # Reference global model section or define here
+  point_cloud_range: ${model.point_cloud_range}
+  max_voxels: [16000, 40000]
+
+voxel_encoder: # This is PillarFeatureNet
+  # ---> CRITICAL UPDATE FOR POINTPAINTING <---
+  in_channels: 4 
+  feat_channels: [64]
+  with_distance: FALSE
+  voxel_size: ${model.voxel_size}
+  point_cloud_range: ${model.point_cloud_range}
+  
+middle_encoder: # PointPillarsScatter
+  in_channels: 64 
+  output_shape: [320, 320] # (pc_range_y_span / voxel_y_size, pc_range_x_span / voxel_x_size)
+
+# ---> MODIFIED: Update the BEV Backbone input channels <---
+backbone: # SECOND BEV Backbone
+  # Input channels = 64 (from LiDAR BEV) + 256 (from Image BEV) = 320
+  in_channels: 320 
+  layer_nums: [3, 5, 5]
+  layer_strides: [2, 2, 2]
+  out_channels: [64, 128, 256]
+
+neck: # SECONDFPN
+  in_channels: [64, 128, 256]
+  upsample_strides: [1, 2, 4]
+  out_channels: [128, 128, 128]
+
+head:
+  in_channels: 384 # sum(128, 128, 128)
+  tasks: [
+    {num_class: 1, class_names: ['Car']},
+    {num_class: 1, class_names: ['Pedestrian']},
+    {num_class: 1, class_names: ['Cyclist']}
+    ]
+  common_heads:
+    reg: [2, 2]
+    height: [1, 2]
+    dim: [3, 2]
+    rot: [2, 2] # no need vel
+    heatmap: ~
+  share_conv_channel: 64
+  bbox_coder:
+    pc_range: ${model.point_cloud_range}
+    post_center_range: [-5, -30.6, -6, 56.2, 30.6, 5] #[-10, -49.68, -10, 79.12, 49.68, 10]
+    max_num: 350
+    score_threshold: 0.1
+    out_size_factor: 2
+    voxel_size: [0.16, 0.16]
+    code_size: 7
+  separate_head:
+    in_channels: ~
+    heads: ~
+    init_bias: -2.19
+    final_kernel: 3
+  loss_cls:
+    reduction: 'mean'
+    loss_weight: 1.0
+  loss_bbox: 
+    reduction: 'mean'
+    loss_weight: 0.25
+  norm_bbox: TRUE 
+  train_cfg:
+    grid_size: [320, 320, 1]
+    point_cloud_range: ${model.point_cloud_range}
+    voxel_size: ${model.voxel_size}
+    out_size_factor: 2
+    dense_reg: 1
+    gaussian_overlap: 0.1
+    max_objs: 500
+    min_radius: 2
+    code_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  test_cfg:
+    post_center_limit_range: [-5, -30.6, -6, 56.2, 30.6, 5]
+    max_per_img: 500
+    max_pool_nms: False
+    min_radius: [4, 0.3, 0.85]
+    score_threshold: 0.1
+    out_size_factor: 2
+    # voxel_size: ${model.voxel_size}
+    nms_type: 'circle'
+    pre_max_size: 1000
+    post_max_size: 83
+    nms_thr: 0.2
+
+
+# optimizer==>ADAMW
+optimizer:
+  lr: 0.001
+  weight_decay: 0.01 
+

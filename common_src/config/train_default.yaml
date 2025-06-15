@@ -1,0 +1,52 @@
+# config/train_default.yaml
+defaults:
+  - _self_
+  - model: centerpoint_model # Default to 3D detection model config
+  - kitti_locations: default
+  #- wandb_logger_det: default # Default wandb logger for detection
+  # Add other common defaults
+
+# --- Top-Level Experiment Configuration ---
+data_root: "/home/mramidi/final_assignment/view_of_delft" # IMPORTANT: Set this to your actual dataset root
+output_dir: "/home/mramidi/final_assignment/outputs/segmentation_output_dir" # Base output for segmentation runs
+exp_id: "detection_run_default"
+
+# --- Training Settings ---
+mode: "detection_pointpainting" # Default mode
+seed: 42
+batch_size: 4 
+val_batch_size: 1 # Specific for detection validation
+num_workers: 4
+epochs: 60
+gpus: [0] # e.g., [0] for one GPU, [0,1] for two, or 2 for two GPUs by count
+log_every: 50 
+val_every: 3
+save_top_model: 3
+sync_bn: False 
+checkpoint_path: null
+checkpoint_monitor_det: 'validation/ROI/mAP' # Default for detection
+checkpoint_mode_det: 'max'
+
+# Optimizer for CenterPoint (if not defined inside centerpoint_model.yaml or CenterPoint class)
+optimizer_det:
+  lr: 0.001
+  weight_decay: 0.01
+
+# Default Wandb config for detection
+wandb_logger_det:
+  project: "amp_detection"
+  name: ${exp_id}
+  log_model: True
+
+# ---> ADD THIS SECTION TO ENABLE AUGMENTATIONS <---
+  # --- AUGMENTATION --- New section to control augmentation
+use_augmentation: True # Set to True to enable, False to disable
+augment_cfg:
+  # These are the parameters for the Augment class in augmentation.py
+  rot_range: [-0.785, 0.785] # Rotation range in radians (e.g., -45 to +45 degrees)
+  scale_range: [0.95, 1.05]    # Scaling range
+  flip_prob: 0.5               # Probability of horizontal flip
+  # image_size from the friend's file seems to be the raw size, not target.
+  # The new augmentor handles resize, so this might not be needed if your augmentor is smart,
+  # but we pass it for consistency with the provided file.
+  image_size: [1936, 1216]
